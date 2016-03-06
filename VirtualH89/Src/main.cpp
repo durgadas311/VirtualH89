@@ -21,27 +21,18 @@
 #include <string>
 #include <unistd.h>
 
-#include "H89.h"
 #include "Console.h"
 #include "h19.h"
 #include "StdioConsole.h"
 #include "StdioProxyConsole.h"
 #include "logger.h"
-
-using namespace std;
+#include "startup.h"
 
 #define Z80COPYRIGHT "Copyright (C) 1987-2008 by Udo Munk"
 #define RELEASE "1.17"
 #define H89COPYRIGHT "Copyright (C) 2009-2016 by Mark Garlanger"
 
 const char* usage_str = " -b -s -l";
-
-/// \todo - make H89 into a singleton.
-H89         h89;
-Console*    console     = NULL;
-
-FILE*       log_out     = 0;
-FILE*       console_out = 0;
 
 void
 usage(char* pn)
@@ -53,61 +44,6 @@ usage(char* pn)
     exit(1);
 }
 
-static void*
-cpuThreadFunc(void* v)
-{
-    sigset_t set;
-
-    sigemptyset(&set);
-    sigaddset(&set, SIGALRM);
-    pthread_sigmask(SIG_UNBLOCK, &set, 0);
-    H89* h89 = (H89*) v;
-
-#if FIXME
-
-    if (l_flag)
-    {
-        if (load_core())
-        {
-            return (1);
-        }
-    }
-
-#else
-    // h89->clearMemory(0);
-    // h89->reset();
-#endif
-#if 0
-    powerUp();
-#else
-    BYTE cpu_error;
-
-    // load boot code into memory
-    cpu_error = h89->run();
-#endif
-
-#if FIXME
-
-    if (s_flag)
-    {
-        save_core();
-    }
-
-#endif
-
-    return (0);
-}
-
-// This is the getopt string for ALL consumers of argc/argv.
-// Right now, it must be manually kept up to date.
-//
-//	option		owner
-//	-g <gui>	main.cpp
-//	-l		StdioProxyConsole.cpp
-//	-q		main.cpp
-//
-const char* getopts = "g:lq";
-
 /// \todo - use argv[0] to determine configuration... ie H88 vs. H89 vs. Z90.
 int
 main(int   argc,
@@ -118,6 +54,12 @@ main(int   argc,
     std::string  gui("H19");
     int          quiet = 0;
     setDebugLevel();
+    sigset_t set;
+
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &set, 0);
 
     while ((c = getopt(argc, argv, getopts)) != EOF)
     {
@@ -178,13 +120,7 @@ main(int   argc,
         cout << "CPU speed is 2.048 MHz" << endl << endl;
     }
 
-    sigset_t set;
-
-    sigemptyset(&set);
-    sigaddset(&set, SIGINT);
-    sigaddset(&set, SIGALRM);
-    pthread_sigmask(SIG_BLOCK, &set, 0);
-
+    Console* console = NULL;
     if (gui.compare("stdio") == 0)
     {
         console = new StdioConsole(argc, argv);
@@ -198,19 +134,11 @@ main(int   argc,
         console = new H19();
     }
 
-    h89.buildSystem(console);
-
-    pthread_t thread;
-    pthread_create(&thread, NULL, cpuThreadFunc, &h89);
-    h89.init();
-
-    console->run();
-
-    // TODO: call destructors...
+    int ret = startup(argc, argv, console);
 
     // Leave open so destructors can log messages.
     // exit() always closes files anyway.
     // fclose(log_out);
     // fclose(console_out);
-    return (0);
+    return (ret);
 }
